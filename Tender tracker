@@ -1,0 +1,73 @@
+import streamlit as st
+import pandas as pd
+from matching_engine.matcher import match_profile_with_tenders
+from pdf_reader.extract_info import read_pdf
+pip install -r requirements.txt
+streamlit run app/streamlit_app.py
+
+
+st.set_page_config(page_title="Government Tender Tracker", layout="wide")
+
+# Title
+st.title("🚀 Government Tender Tracker & Recommender")
+
+# Load sample tender data
+tenders = pd.read_csv("data/sample_tenders.csv")
+
+# Upload company profile
+uploaded_file = st.file_uploader("Upload Your Company Profile (PDF or TXT)", type=["pdf", "txt"])
+
+if uploaded_file:
+    if uploaded_file.name.endswith(".txt"):
+        profile_text = uploaded_file.read().decode("utf-8")
+    elif uploaded_file.name.endswith(".pdf"):
+        profile_text = read_pdf(uploaded_file)
+    else:
+        st.error("Unsupported file format.")
+
+    # Matching tenders
+    st.subheader("🔍 Matched Tenders")
+    matched_tenders = match_profile_with_tenders(profile_text, tenders)
+
+    if not matched_tenders.empty:
+        for idx, row in matched_tenders.iterrows():
+            st.write(f"### {row['Tender Title']}")
+            st.write(f"**Scope of Work:** {row['Scope of Work']}")
+            st.write(f"**EMD:** ₹{row['EMD']}")
+            st.write(f"**Deadline:** {row['Deadline']}")
+            st.progress(row['Match Score'])
+            st.markdown("---")
+    else:
+        st.warning("No matching tenders found.")
+else:
+    st.info("Please upload your company profile to get recommendations.")
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+def match_profile_with_tenders(profile_text, tenders_df, threshold=0.3):
+    corpus = [profile_text] + tenders_df["Scope of Work"].tolist()
+    tfidf = TfidfVectorizer(stop_words="english")
+    tfidf_matrix = tfidf.fit_transform(corpus)
+
+    profile_vector = tfidf_matrix[0]
+    tender_vectors = tfidf_matrix[1:]
+
+    similarities = cosine_similarity(profile_vector, tender_vectors).flatten()
+
+    tenders_df["Match Score"] = similarities
+
+    matched_tenders = tenders_df[tenders_df["Match Score"] >= threshold].sort_values(by="Match Score", ascending=False)
+
+    return matched_tenders
+import pdfplumber
+
+def read_pdf(uploaded_file):
+    text = ""
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    return text
+
